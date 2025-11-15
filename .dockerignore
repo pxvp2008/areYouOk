@@ -1,0 +1,73 @@
+# Git
+.git
+.gitignore
+.gitattributes
+.gitkeep
+
+# Documentation
+README.md
+CLAUDE.md
+docs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Node modules
+node_modules/
+*/node_modules/
+
+# Build artifacts
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Development tools
+nodemon.json
+
+# Data files (will be mounted as volume)
+data/*.db
+data/*.db-journal
+*.db
+
+# PID files
+*.pid
+
+# Shell scripts (development)
+start.sh
+stop.sh
+
+# Docker startup script (needed for build)
+!docker-start.sh
+
+# Docker files (exclude from build context)
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+
+# Development configuration
+vite.config.js
