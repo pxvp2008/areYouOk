@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  areyouok:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: areyouok-dev
+    ports:
+      - "3000:80"
+      - "7965:7965"
+    environment:
+      - NODE_ENV=development
+      - PORT=7965
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+      - ./backend/.env:/app/backend/.env:ro
+      - ./backend:/app/backend:ro
+      - ./frontend:/app/frontend:ro
+    networks:
+      - areyouok-network
+    command: >
+      sh -c "
+        echo 'Development mode...' &&
+        /app/start.sh
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+
+networks:
+  areyouok-network:
+    driver: bridge

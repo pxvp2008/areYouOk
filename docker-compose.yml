@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  areyouok:
+    image: pxvp2008/areyouok-app:latest
+    container_name: areyouok-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=7965
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
