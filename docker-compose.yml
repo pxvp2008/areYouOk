@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   areyouok:
-    image: pxvp2008/areyouok-app:latest
+    image: areyouok:dev
     container_name: areyouok-app
     restart: unless-stopped
     ports:
@@ -11,6 +11,9 @@ services:
       - NODE_ENV=production
       - PORT=7965
       - TZ=Asia/Shanghai
+      # 权限配置：动态用户ID设置
+      - PUID=1000
+      - PGID=1000
     volumes:
       - ./data:/app/data:rw
       - ./logs:/app/logs:rw
