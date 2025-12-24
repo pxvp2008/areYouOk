@@ -13,24 +13,7 @@ class BillController {
      */
     async syncBills(req, res) {
         try {
-            const { billingMonth, type = 'full' } = req.body;
-
-            // 验证参数
-            if (!billingMonth) {
-                return res.status(400).json({
-                    success: false,
-                    message: '缺少必要参数: billingMonth'
-                });
-            }
-
-            // 验证日期格式
-            const monthRegex = /^\d{4}-\d{2}$/;
-            if (!monthRegex.test(billingMonth)) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'billingMonth格式不正确，应为YYYY-MM格式'
-                });
-            }
+            const { billingMonth, type = 'full', startDate, endDate } = req.body;
 
             // 检查是否正在同步
             if (syncService.isSyncing()) {
@@ -40,12 +23,40 @@ class BillController {
                 });
             }
 
-            // 对于全量同步，使用新的异步启动方法
+            // 如果是全量同步，允许使用时间区间参数
             if (type === 'full') {
-                const result = await syncService.startSync(billingMonth);
-                res.json(result);
+                if (startDate && endDate) {
+                    // 使用时间区间同步
+                    const result = await syncService.startSyncByRange(startDate, endDate);
+                    res.json(result);
+                } else if (billingMonth) {
+                    // 验证日期格式
+                    const monthRegex = /^\d{4}-\d{2}$/;
+                    if (!monthRegex.test(billingMonth)) {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'billingMonth格式不正确，应为YYYY-MM格式'
+                        });
+                    }
+
+                    // 使用单月同步
+                    const result = await syncService.startSync(billingMonth);
+                    res.json(result);
+                } else {
+                    return res.status(400).json({
+                        success: false,
+                        message: '全量同步需要提供 billingMonth 或 startDate+endDate 参数'
+                    });
+                }
             } else {
                 // 增量同步仍然使用同步方式
+                if (!billingMonth) {
+                    return res.status(400).json({
+                        success: false,
+                        message: '增量同步需要提供 billingMonth 参数'
+                    });
+                }
+
                 const result = await syncService.incrementalSync(billingMonth);
                 res.json({
                     success: true,

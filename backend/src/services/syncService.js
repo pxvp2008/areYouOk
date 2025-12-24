@@ -187,9 +187,14 @@ class SyncService {
      * @param {string} billingMonth - 账单月份 (YYYY-MM)
      * @returns {Promise<Object>} 同步结果
      */
-    async syncBills(billingMonth) {
+    async syncBills(billingMonth, startDate = null, endDate = null) {
         // 1. 验证参数
         this.validateSyncParams(billingMonth);
+
+        // 如果提供了时间区间，使用时间区间同步
+        if (startDate && endDate) {
+            return this.syncBillsByRange(startDate, endDate);
+        }
 
         // 2. 初始化同步状态
         const startTime = this.initializeSync('clearing');
@@ -283,6 +288,174 @@ class SyncService {
             this.syncing = false;
         }
     }
+
+    /**
+     * 按时间区间同步账单数据（全量）
+     * @param {string} startDate - 开始日期 (YYYY-MM)
+     * @param {string} endDate - 结束日期 (YYYY-MM)
+     * @returns {Promise<Object>} 同步结果
+     */
+    async syncBillsByRange(startDate, endDate) {
+        // 验证日期格式
+        const dateRegex = /^\d{4}-\d{2}$/;
+        if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+            throw new Error('日期格式不正确，应为 YYYY-MM');
+        }
+
+        // 验证日期范围
+        if (startDate > endDate) {
+            throw new Error('开始日期不能晚于结束日期');
+        }
+
+        // 生成月份列表
+        const months = this.generateMonthRange(startDate, endDate);
+
+        if (months.length === 0) {
+            throw new Error('无效的日期范围');
+        }
+
+        // 初始化同步状态
+        const startTime = this.initializeSync('clearing');
+
+        try {
+            // 清空数据库
+            await this.clearDatabase();
+
+            // 按月同步数据
+            let allSynced = 0;
+            let allFailed = 0;
+            let allApiBills = [];
+            const allErrors = [];
+
+            for (let i = 0; i < months.length; i++) {
+                const month = months[i];
+                this.progress.stage = 'fetching';
+                this.progress.current = i;
+                this.progress.total = months.length;
+                this.progress.percentage = Math.floor((i / months.length) * 50);
+
+                try {
+                    // 获取当前月份数据
+                    const apiBills = await apiService.fetchAllBills(month, 100);
+                    allApiBills.push(...apiBills);
+
+                    // 更新进度信息
+                    this.progress.currentMonth = month;
+                    this.progress.monthFetched = i + 1;
+                    this.progress.monthTotal = months.length;
+                } catch (error) {
+                    allFailed++;
+                    allErrors.push(`获取${month}月份数据失败: ${error.message}`);
+                    console.error(`获取${month}月份数据失败:`, error.message);
+                }
+            }
+
+            if (allApiBills.length === 0) {
+                this.progress.stage = 'completed';
+                this.progress.percentage = 100;
+                const duration = Date.now() - startTime;
+                const result = {
+                    success: true,
+                    message: '没有找到数据',
+                    synced: 0,
+                    failed: allFailed,
+                    duration
+                };
+
+                await this.saveSyncHistory({
+                    sync_type: 'full',
+                    billing_month: `${startDate}至${endDate}`,
+                    status: '成功',
+                    synced_count: 0,
+                    failed_count: allFailed,
+                    total_count: 0,
+                    message: '没有找到数据',
+                    duration: Math.floor(duration / 1000)
+                });
+
+                return result;
+            }
+
+            // 验证API数据
+            this.validateApiData(allApiBills);
+
+            // 转换数据格式
+            const { transformedBills } = this.transformData(allApiBills);
+
+            // 保存到数据库
+            this.progress.stage = 'saving';
+            const saveResult = await this.saveToDatabase(transformedBills);
+            allSynced = saveResult.synced;
+            allFailed += saveResult.failed;
+
+            // 完成同步
+            this.progress.stage = 'completed';
+            this.progress.percentage = 100;
+            const duration = Date.now() - startTime;
+            const result = {
+                success: true,
+                total: allApiBills.length,
+                synced: allSynced,
+                failed: allFailed,
+                duration,
+                errors: [...saveResult.errors, ...allErrors].slice(0, 10)
+            };
+
+            // 保存成功历史记录
+            await this.saveSyncHistory({
+                sync_type: 'full',
+                billing_month: `${startDate}至${endDate}`,
+                status: '成功',
+                synced_count: allSynced,
+                failed_count: allFailed,
+                total_count: allApiBills.length,
+                message: '全量数据同步完成',
+                duration: Math.floor(duration / 1000)
+            });
+
+            return result;
+        } catch (error) {
+            console.error('数据同步失败:', error.message);
+
+            // 保存失败历史记录
+            await this.saveSyncHistory({
+                sync_type: 'full',
+                billing_month: `${startDate}至${endDate}`,
+                status: '失败',
+                synced_count: 0,
+                failed_count: 0,
+                total_count: 0,
+                message: error.message || '全量数据同步失败',
+                duration: 0
+            });
+
+            throw error;
+        } finally {
+            this.syncing = false;
+        }
+    }
+
+    /**
+     * 生成月份列表
+     * @param {string} startDate - 开始日期 (YYYY-MM)
+     * @param {string} endDate - 结束日期 (YYYY-MM)
+     * @returns {Array<string>} 月份列表
+     */
+    generateMonthRange(startDate, endDate) {
+        const months = [];
+        let current = new Date(startDate + '-01');
+        const end = new Date(endDate + '-01');
+
+        while (current <= end) {
+            const year = current.getFullYear();
+            const month = String(current.getMonth() + 1).padStart(2, '0');
+            months.push(`${year}-${month}`);
+            current.setMonth(current.getMonth() + 1);
+        }
+
+        return months;
+    }
+
     /**
      * 增量同步（只同步最新的数据）
      * 采用分页查询方式，减少API调用压力
@@ -503,6 +676,32 @@ class SyncService {
             message: '同步已开始，请通过进度接口查看同步状态'
         };
     }
+
+    /**
+     * 异步启动时间区间同步（在后台执行）
+     * @param {string} startDate - 开始日期 (YYYY-MM)
+     * @param {string} endDate - 结束日期 (YYYY-MM)
+     * @returns {Promise} 立即返回的Promise
+     */
+    async startSyncByRange(startDate, endDate) {
+        // 如果正在同步，不执行
+        if (this.syncing) {
+            throw new Error('数据同步正在进行中，请稍后再试');
+        }
+        // 立即返回，让同步在后台进行
+        this.startSyncByRangeAsync(startDate, endDate).catch(error => {
+            console.error('后台时间区间同步失败:', error);
+            this.syncResult = {
+                success: false,
+                message: error.message,
+                error: error
+            };
+        });
+        return {
+            success: true,
+            message: '同步已开始，请通过进度接口查看同步状态'
+        };
+    }
     /**
      * 后台异步执行同步
      * @param {string} billingMonth - 账单月份 (YYYY-MM)
@@ -661,6 +860,179 @@ class SyncService {
                 await SyncHistory.create({
                     sync_type: 'full',
                     billing_month: billingMonth,
+                    status: '失败',
+                    synced_count: 0,
+                    failed_count: 0,
+                    total_count: 0,
+                    message: error.message || '全量数据同步失败',
+                    duration: 0
+                });
+            } catch (historyError) {
+                console.error('保存全量同步历史记录失败:', historyError.message);
+            }
+
+            throw error;
+        } finally {
+            this.syncing = false;
+            this.progress = {
+                percentage: 0,
+                current: 0,
+                total: 0,
+                stage: 'idle'
+            };
+        }
+    }
+
+    /**
+     * 后台异步执行时间区间同步
+     * @param {string} startDate - 开始日期 (YYYY-MM)
+     * @param {string} endDate - 结束日期 (YYYY-MM)
+     */
+    async startSyncByRangeAsync(startDate, endDate) {
+        this.syncing = true;
+        this.syncResult = null;
+        this.progress = {
+            percentage: 0,
+            current: 0,
+            total: 0,
+            stage: 'clearing'
+        };
+        const startTime = Date.now();
+        try {
+            // 生成月份列表
+            const months = this.generateMonthRange(startDate, endDate);
+
+            // 0. 全量同步前先清空数据库表
+            this.progress.stage = 'clearing';
+            const deleteResult = await Bill.deleteAll();
+            this.progress.percentage = 5;
+            this.progress.current = deleteResult.count;
+
+            // 1. 从API获取所有月份的账单数据
+            this.progress.stage = 'fetching';
+            this.progress.total = months.length;
+            this.progress.current = 0;
+            let allApiBills = [];
+
+            for (let i = 0; i < months.length; i++) {
+                const month = months[i];
+                this.progress.current = i + 1;
+                this.progress.currentMonth = month;
+                this.progress.monthFetched = i + 1;
+                this.progress.monthTotal = months.length;
+                // 阶段1进度：5-55%
+                this.progress.percentage = 5 + Math.floor((i + 1) / months.length * 50);
+
+                try {
+                    const apiBills = await apiService.fetchAllBills(month, 100);
+                    allApiBills.push(...apiBills);
+                } catch (error) {
+                    console.error(`获取${month}月份数据失败:`, error.message);
+                }
+            }
+
+            // 确保进度显示为55%
+            this.progress.current = allApiBills.length;
+            this.progress.total = allApiBills.length;
+            this.progress.percentage = 55;
+
+            if (allApiBills.length === 0) {
+                this.progress.stage = 'completed';
+                this.progress.percentage = 100;
+                this.syncResult = {
+                    success: true,
+                    message: '没有找到数据',
+                    synced: 0,
+                    failed: 0,
+                    duration: 0
+                };
+
+                // 保存同步历史记录（没有数据的情况）
+                try {
+                    await SyncHistory.create({
+                        sync_type: 'full',
+                        billing_month: `${startDate}至${endDate}`,
+                        status: '成功',
+                        synced_count: 0,
+                        failed_count: 0,
+                        total_count: 0,
+                        message: '没有找到数据',
+                        duration: 0
+                    });
+                } catch (historyError) {
+                    console.error('保存全量同步历史记录失败:', historyError.message);
+                }
+
+                return;
+            }
+
+            // 2. 转换数据格式
+            const transformedBills = allApiBills.map(bill => transformBillData(bill));
+
+            // 3. 批量插入数据库
+            this.progress.stage = 'saving';
+            let synced = 0;
+            let failed = 0;
+            const errors = [];
+            for (let i = 0; i < transformedBills.length; i++) {
+                const billData = transformedBills[i];
+                try {
+                    const result = await Bill.create(billData);
+                    synced++;
+                    if (result.changes === 0) {
+                    }
+                } catch (error) {
+                    failed++;
+                    const errorMsg = `账单 ${billData.billing_no || 'unknown'} 同步失败: ${error.message}`;
+                    console.error(errorMsg, { error: error.code });
+                    errors.push(errorMsg);
+                }
+                // 阶段2：数据处理入库（55-100%）
+                this.progress.current = i + 1;
+                this.progress.total = transformedBills.length;
+                this.progress.percentage = 55 + Math.floor((i + 1) / transformedBills.length * 45);
+            }
+
+            this.progress.stage = 'completed';
+            this.progress.percentage = 100;
+            const duration = Date.now() - startTime;
+            this.syncResult = {
+                success: true,
+                total: allApiBills.length,
+                synced,
+                failed,
+                duration,
+                errors: errors.slice(0, 10)
+            };
+
+            // 保存同步历史记录
+            try {
+                await SyncHistory.create({
+                    sync_type: 'full',
+                    billing_month: `${startDate}至${endDate}`,
+                    status: '成功',
+                    synced_count: synced,
+                    failed_count: failed,
+                    total_count: allApiBills.length,
+                    message: '全量数据同步完成',
+                    duration: Math.floor(duration / 1000)
+                });
+            } catch (historyError) {
+                console.error('保存全量同步历史记录失败:', historyError.message);
+            }
+        } catch (error) {
+            console.error('数据同步失败:', error.message);
+            this.syncResult = {
+                success: false,
+                message: error.message,
+                error: error
+            };
+
+            // 保存失败历史记录
+            try {
+                await SyncHistory.create({
+                    sync_type: 'full',
+                    billing_month: `${startDate}至${endDate}`,
                     status: '失败',
                     synced_count: 0,
                     failed_count: 0,

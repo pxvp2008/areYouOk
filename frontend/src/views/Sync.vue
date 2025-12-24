@@ -194,7 +194,15 @@
 
             <div class="sync-form">
               <el-form :model="fullForm" label-position="top">
-                <el-form-item label="账单月份">
+                <el-form-item>
+                  <el-radio-group v-model="fullForm.syncMode" @change="handleSyncModeChange">
+                    <el-radio value="single">单月同步</el-radio>
+                    <el-radio value="range">区间同步</el-radio>
+                  </el-radio-group>
+                </el-form-item>
+
+                <!-- 单月同步 -->
+                <el-form-item v-if="fullForm.syncMode === 'single'" label="账单月份">
                   <el-date-picker
                     v-model="fullForm.billingMonth"
                     type="month"
@@ -202,6 +210,21 @@
                     format="YYYY-MM"
                     value-format="YYYY-MM"
                     class="month-picker"
+                  />
+                </el-form-item>
+
+                <!-- 区间同步 -->
+                <el-form-item v-if="fullForm.syncMode === 'range'" label="时间区间">
+                  <el-date-picker
+                    v-model="fullForm.dateRange"
+                    type="monthrange"
+                    placeholder="选择月份区间"
+                    format="YYYY-MM"
+                    value-format="YYYY-MM"
+                    class="month-picker"
+                    range-separator="至"
+                    start-placeholder="开始月份"
+                    end-placeholder="结束月份"
                   />
                 </el-form-item>
 
@@ -235,7 +258,13 @@
                 :show-text="false"
               />
               <div class="progress-details">
-                <span v-if="progress.total > 0">
+                <span v-if="progress.monthTotal && progress.monthTotal > 1">
+                  正在同步第 {{ progress.monthFetched || 0 }} / {{ progress.monthTotal }} 个月份的数据
+                  <template v-if="progress.currentMonth">
+                    ({{ progress.currentMonth }})
+                  </template>
+                </span>
+                <span v-else-if="progress.total > 0">
                   {{ progress.current }} / {{ progress.total }} 条记录 ({{ progress.current > 0 && progress.total > 0 ? Math.floor((progress.current / progress.total) * 100) : progress.percentage }}%)
                 </span>
                 <span v-else>
@@ -329,7 +358,9 @@ const activeTab = ref('incremental')
 
 // 全量同步表单
 const fullForm = ref({
-  billingMonth: ''
+  syncMode: 'single', // 'single' | 'range'
+  billingMonth: '',
+  dateRange: null
 })
 
 // 自动同步配置
@@ -429,9 +460,17 @@ const handleIncrementalSync = async () => {
 
 // 全量同步
 const handleFullSync = async () => {
-  if (!fullForm.value.billingMonth) {
-    ElMessage.warning('请选择账单月份')
-    return
+  // 验证输入参数
+  if (fullForm.value.syncMode === 'single') {
+    if (!fullForm.value.billingMonth) {
+      ElMessage.warning('请选择账单月份')
+      return
+    }
+  } else if (fullForm.value.syncMode === 'range') {
+    if (!fullForm.value.dateRange || fullForm.value.dateRange.length !== 2) {
+      ElMessage.warning('请选择时间区间')
+      return
+    }
   }
 
   // 检查数据库中是否有配置Token
@@ -462,8 +501,13 @@ const handleFullSync = async () => {
   }
 
   try {
+    let confirmMessage = '全量同步将清空现有数据并重新同步，风险较高！\n请确认您已备份重要数据。'
+    if (fullForm.value.syncMode === 'range') {
+      confirmMessage = `全量同步将清空现有数据并重新同步时间区间内的所有数据\n时间区间: ${fullForm.value.dateRange[0]} 至 ${fullForm.value.dateRange[1]}\n\n请确认您已备份重要数据。`
+    }
+
     await ElMessageBox.confirm(
-      '全量同步将清空现有数据并重新同步，风险较高！\n请确认您已备份重要数据。',
+      confirmMessage,
       '全量同步确认',
       {
         confirmButtonText: '确认执行',
@@ -491,7 +535,14 @@ const handleFullSync = async () => {
   startProgressPolling()
 
   try {
-    const result = await api.syncBills(fullForm.value.billingMonth, 'full')
+    let result
+    if (fullForm.value.syncMode === 'single') {
+      // 单月同步
+      result = await api.syncBills(fullForm.value.billingMonth, 'full')
+    } else {
+      // 区间同步
+      result = await api.syncBillsRange(fullForm.value.dateRange[0], fullForm.value.dateRange[1], 'full')
+    }
 
     if (!result.success) {
       fullSyncing.value = false
@@ -502,6 +553,16 @@ const handleFullSync = async () => {
     fullSyncing.value = false
     stopProgressPolling()
     ElMessage.error('同步失败：' + error.message)
+  }
+}
+
+// 处理同步模式切换
+const handleSyncModeChange = (mode) => {
+  // 切换模式时清空之前的选择
+  if (mode === 'single') {
+    fullForm.value.dateRange = null
+  } else {
+    fullForm.value.billingMonth = ''
   }
 }
 
