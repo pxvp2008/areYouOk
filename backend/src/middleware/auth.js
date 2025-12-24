@@ -64,7 +64,7 @@ const verifyToken = async (token) => {
                 'Authorization': authHeader,
                 'Content-Type': 'application/json'
             },
-            timeout: 10000
+            timeout: 120000
         });
 
         // 检查API返回状态
