@@ -1,12 +1,13 @@
-version: '3.8'
-
 services:
   areyouok:
-    image: pxvp2008/areyouok-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: areyouok-app:local
     container_name: areyouok-app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3008:3000"
     environment:
       - NODE_ENV=production
       - PORT=7965

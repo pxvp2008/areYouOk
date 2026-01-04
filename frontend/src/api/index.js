@@ -26,6 +26,10 @@ export default {
     return api.post('/bills/sync', { billingMonth, type })
   },
 
+  syncBillsRange(startDate, endDate, type = 'full') {
+    return api.post('/bills/sync', { startDate, endDate, type })
+  },
+
   getBills(params) {
     return api.get('/bills', { params })
   },

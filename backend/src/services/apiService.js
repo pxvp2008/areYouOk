@@ -50,7 +50,7 @@ class ApiService {
             const response = await axios.get(this.apiUrl, {
                 params,
                 headers,
-                timeout: 10000 // 10秒超时
+                timeout: 120000 // 120秒超时
             });
             if (response.data.code !== 200) {
                 throw new Error(`API返回错误: ${response.data.msg || '未知错误'}`);
