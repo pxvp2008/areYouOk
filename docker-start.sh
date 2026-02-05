@@ -18,9 +18,9 @@ wait_for_backend() {
 }
 
 init_database() {
-    if [ ! -f "/app/data/expense_bills.db" ]; then
+    if [ ! -f "${PWD}/data/expense_bills.db" ]; then
         log "Initializing database..."
-        cd /app/backend && npm run init-db 2>&1 | tee /app/logs/db_init.log
+        cd ${PWD}/backend && npm run init-db 2>&1 | tee ${PWD}/logs/db_init.log
         [ $? -eq 0 ] || { log "Database init failed"; exit 1; }
     fi
 }
@@ -30,7 +30,7 @@ log "Starting AreYouOk..."
 init_database
 
 log "Starting backend..."
-cd /app/backend && NODE_ENV=production PORT=7965 npm start > /app/logs/backend.log 2>&1 &
+cd ${PWD}/backend && NODE_ENV=production PORT=7965 npm start > ${PWD}/logs/backend.log 2>&1 &
 BACKEND_PID=$!
 
 wait_for_backend
@@ -38,7 +38,7 @@ wait_for_backend
 log "Starting nginx..."
 nginx -g 'daemon off; pid /run/nginx/nginx.pid;' \
   -c /etc/nginx/nginx.conf \
-  -e error >/app/logs/nginx.log 2>&1 &
+  -e error >${PWD}/logs/nginx.log 2>&1 &
 NGINX_PID=$!
 
 shutdown() {
@@ -51,7 +51,7 @@ shutdown() {
 
 trap shutdown SIGTERM SIGINT
 
-tail -f /app/logs/backend.log &
+tail -f ${PWD}/logs/backend.log &
 
 log "Services started"
 log "Frontend: http://localhost:3000"

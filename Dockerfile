@@ -24,8 +24,8 @@ ENV PUID=${PUID}
 ENV PGID=${PGID}
 
 RUN apk add --no-cache nginx sqlite curl dumb-init su-exec && \
-    addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
+    addgroup -g ${PUID}  -S nodejs && \
+    adduser -S nodejs -u ${PUID}  && \
     rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
 
 WORKDIR /app

@@ -76,6 +76,8 @@ docker-compose up -d
 docker run -d \
   --name areyouok-app \
   --restart unless-stopped \
+  -e PUID=你的UID \
+  -e PGID=你的GID \
   -p 3000:3000 \
   -v $(pwd)/data:/app/data:rw \
   -v $(pwd)/logs:/app/logs:rw \
